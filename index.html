@@ -1,0 +1,617 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2E2418">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Harmonies Solo</title>
+<style>
+:root {
+  --bg: #F4EEE2; --panel: #FFFDF8; --ink: #2E2418; --ink-soft: #6B5D4C; --line: #DDD2BE;
+  --hex: #E9DFC9; --hex-edge: #CDBFA5; --accent: #E0862B; --ok: #4E8A3A; --bad: #B23A2E;
+  --legal: #F2B84B;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #1C1814; --panel: #27211B; --ink: #F1E9DA; --ink-soft: #B5A893; --line: #3D342A;
+    --hex: #3A3128; --hex-edge: #554838;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #1C1814; --panel: #27211B; --ink: #F1E9DA; --ink-soft: #B5A893; --line: #3D342A;
+  --hex: #3A3128; --hex-edge: #554838;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 15px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
+body { padding: 0 12px calc(24px + env(safe-area-inset-bottom)); max-width: 560px; margin: 0 auto; }
+button { white-space: nowrap; font: inherit; color: inherit; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 12px; cursor: pointer; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+header { display: flex; align-items: center; gap: 8px; padding: 10px 0 6px; position: sticky; top: 0; background: var(--bg); z-index: 5; }
+header h1 { font-size: 17px; margin: 0; flex: 1; }
+.meta { font-size: 12px; color: var(--ink-soft); }
+.score-pill { font-weight: 800; font-size: 16px; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 4px 10px; }
+section { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 8px 10px; margin: 8px 0; }
+section h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-soft); margin: 0 0 6px; display: flex; justify-content: space-between; align-items: center; }
+.row { display: flex; gap: 8px; }
+.spaces .space { flex: 1; padding: 6px 2px; display: flex; justify-content: center; }
+.space.picked { outline: 3px solid var(--accent); }
+.space svg { display: block; }
+.cards { display: flex; gap: 6px; }
+#myCards { display: grid; grid-template-columns: 1fr 1fr; }
+.card { flex: 1; min-width: 0; border: 1px solid var(--line); border-radius: 10px; padding: 4px; display: flex; align-items: center; justify-content: space-between; gap: 2px; background: var(--bg); }
+.card.sel { outline: 3px solid var(--accent); }
+.card .num { font-size: 10px; color: var(--ink-soft); align-self: flex-start; }
+.ladder { display: flex; flex-direction: column; gap: 2px; align-items: center; }
+.ladder span { font-size: 11px; font-weight: 700; width: 22px; text-align: center; border-radius: 5px; padding: 1px 0; }
+.ladder span.cube { background: var(--accent); color: #fff; }
+.ladder span.empty { border: 1px dashed var(--ink-soft); }
+.hand { display: flex; gap: 8px; align-items: center; min-height: 52px; }
+.hand .tok { border-radius: 50%; padding: 0; width: 46px; height: 46px; display: flex; align-items: center; justify-content: center; }
+.hand .tok.sel { outline: 3px solid var(--accent); outline-offset: 2px; }
+.hand .grow { flex: 1; }
+#board svg { width: 100%; height: auto; display: block; touch-action: manipulation; }
+.msg { min-height: 20px; font-size: 13px; color: var(--ink-soft); margin: 4px 2px; }
+.msg.bad { color: var(--bad); font-weight: 600; }
+.msg.ok { color: var(--ok); font-weight: 600; }
+table.score { width: 100%; border-collapse: collapse; font-size: 14px; }
+table.score td { padding: 3px 2px; border-bottom: 1px solid var(--line); }
+table.score td:last-child { text-align: right; font-weight: 700; }
+table.score tr.total td { border-bottom: none; font-size: 16px; }
+.dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); display: flex; align-items: flex-end; justify-content: center; z-index: 20; }
+.sheet { background: var(--panel); width: 100%; max-width: 560px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(20px + env(safe-area-inset-bottom)); max-height: 88vh; overflow: auto; }
+.sheet h3 { margin: 0 0 10px; }
+.sheet .opts { display: flex; gap: 10px; margin: 10px 0; }
+.sheet .opts button { flex: 1; padding: 14px; }
+.log-item { display: flex; justify-content: space-between; border-bottom: 1px solid var(--line); padding: 6px 0; font-size: 14px; }
+.toggle { font-size: 12px; padding: 4px 8px; }
+.done-count { font-size: 12px; color: var(--ink-soft); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.sun { color: #E0A21B; }
+.card.spirit { flex-direction: column; justify-content: flex-start; border: 2px solid #8E6FB8; }
+.card.spirit .num { align-self: stretch; font-weight: 700; color: #8E6FB8; }
+.card.spirit .stext { font-size: 10.5px; line-height: 1.25; text-align: center; color: var(--ink); }
+.sheet .spirit-pick { display: flex; gap: 10px; margin: 10px 0; }
+.sheet .spirit-pick .card { cursor: pointer; padding: 8px; }
+.chk { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font-size: 14px; }
+.chk input { width: 20px; height: 20px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Harmonies solo <span class="meta" id="meta"></span></h1>
+  <span class="score-pill" id="pill">0</span>
+  <button id="btnMenu" aria-label="Menu">&#9776;</button>
+</header>
+
+<section>
+  <h2>Central board <span class="done-count" id="pouch"></span></h2>
+  <div class="row spaces" id="central"></div>
+</section>
+
+<section>
+  <h2>Animal cards <span class="done-count" id="deckInfo"></span></h2>
+  <div class="cards" id="rowCards"></div>
+</section>
+
+<section>
+  <h2>Your turn <span><button class="toggle" id="btnUndo">Undo</button></span></h2>
+  <div class="hand" id="hand"></div>
+  <div class="msg" id="msg"></div>
+</section>
+
+<section>
+  <h2>Your cards <span class="done-count" id="doneInfo"></span></h2>
+  <div class="cards" id="myCards"></div>
+</section>
+
+<section id="board"></section>
+
+<section>
+  <h2>Score now <button class="toggle" id="btnHints">Show fits: on</button></h2>
+  <div id="scoreTable"></div>
+</section>
+
+<div id="overlay"></div>
+
+<script>
+// ENGINE START
+var COLORS = { W: '#3A8FC4', K: '#8C9197', B: '#7A5230', G: '#5E9B3A', Y: '#E3BC2E', R: '#C8473A', X: '#CDBFA5' };
+var NAMES = { W: 'blue', K: 'gray', B: 'brown', G: 'green', Y: 'yellow', R: 'red' };
+var POUCH = { W: 23, K: 23, B: 21, G: 19, Y: 19, R: 15 };
+var ALLOWED = ['G', 'BG', 'BBG', 'K', 'KK', 'KKK', 'BR', 'KR', 'RR', 'R', 'Y', 'W', 'B', 'BB'];
+var DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]];
+var SHAPES = {
+  PAIR: [[0, 0], [1, 0]],
+  LINE: [[0, 0], [1, 0], [2, 0]],
+  BEND: [[0, 1], [1, 0], [2, 0]],
+  TRI: [[0, 0], [0, 1], [1, 0]],
+  DIAMOND: [[1, 0], [0, 1], [1, 1], [2, 0]]
+};
+// From cards.md (Steph's photos). [shape, tokens (* = cube target), ladder top to bottom]
+var CARD_DATA = [
+  ['BEND', 'W K1* W', [16, 10, 4]], ['LINE', 'BLD T1 T1*', [17, 10, 5]], ['TRI', 'Y Y T3*', [16, 10, 4]],
+  ['TRI', 'K1 K1 W*', [16, 10, 4]], ['BEND', 'W BLD* W', [17, 10, 5]], ['TRI', 'K2 K2 T1*', [11, 5]],
+  ['LINE', 'T1 T1 W*', [16, 10, 5]], ['PAIR', 'T3 K1*', [15, 10, 6]], ['TRI', 'T2 T2 BLD*', [12, 5]],
+  ['PAIR', 'Y K3*', [11, 5]], ['LINE', 'K2 Y Y*', [12, 5]], ['PAIR', 'T1 Y*', [17, 12, 8]],
+  ['BEND', 'T2 Y* T2', [17, 10, 5]], ['LINE', 'Y Y BLD*', [16, 10, 5]], ['PAIR', 'BLD W*', [13, 8, 4]],
+  ['PAIR', 'BLD T2*', [13, 8, 4]], ['BEND', 'BLD Y* BLD', [9, 4]], ['LINE', 'T2 T2 Y*', [11, 5]],
+  ['DIAMOND', 'T2* Y Y Y', [18, 8]], ['LINE', 'Y K1 K1*', [16, 9, 4]], ['PAIR', 'T1 T2*', [15, 10, 6]],
+  ['BEND', 'Y BLD* Y', [17, 10, 5]], ['LINE', 'T3 W W*', [15, 9, 4]], ['PAIR', 'K3 W*', [16, 10, 6]],
+  ['TRI', 'Y Y W*', [16, 10, 4]], ['PAIR', 'T3 BLD*', [15, 9, 4]], ['DIAMOND', 'Y* W W W', [12, 6]],
+  ['TRI', 'W W T2*', [14, 9, 4]], ['PAIR', 'Y K1*', [14, 9, 5]], ['PAIR', 'T1 W*', [15, 10, 6]],
+  ['TRI', 'W W K2*', [11, 5]], ['BEND', 'W T3* W', [18, 11, 5]]
+];
+var CARDS = CARD_DATA.map(function (d, i) {
+  var toks = d[1].split(' '), target = -1;
+  var cells = toks.map(function (t, j) {
+    if (t.slice(-1) === '*') { target = j; t = t.slice(0, -1); }
+    return { q: SHAPES[d[0]][j][0], r: SHAPES[d[0]][j][1], req: t };
+  });
+  return { id: i + 1, shape: d[0], cells: cells, target: target, ladder: d[2] };
+});
+// Nature's Spirit cards (Spirit Cards.pdf photos + rule book p.10). Ids 101-110, shown as S1-S10.
+// kind 'count' = scores landscapes (0 bonus suns), 'group' = scores groups (1 bonus sun); no spirit = 2.
+// rule: tree/mtn = points by height; blue = per blue token; grp = [[minSize, points], ...] for groups of `of`.
+var SPIRIT_DATA = [
+  ['Lion', 'LINE', 'T2 Y* Y', 'group', { t: 'grp', of: 'Y', tiers: [[3, 10], [2, 2], [1, 2]] }, 'Yellow groups: 1 or 2 tokens = 2, 3+ = 10'],
+  ['Ram', 'PAIR', 'K2 K3*', 'count', { t: 'mtn', by: { 2: 4, 3: 4 } }, 'Each mountain: height 2 = 4, height 3 = 4'],
+  ['Turtle', 'LINE', 'K2 W* W', 'count', { t: 'blue', pts: 2 }, 'Each blue token = 2'],
+  ['Butterfly', 'DIAMOND', 'W Y W Y*', 'group', { t: 'grp', of: 'Y', tiers: [[2, 5]] }, 'Each yellow group of 2+ = 5'],
+  ['Marmot', 'BEND', 'K1 K2* K1', 'count', { t: 'mtn', by: { 1: 3, 2: 3, 3: 1 } }, 'Each mountain: height 1 = 3, 2 = 3, 3 = 1'],
+  ['Cat', 'LINE', 'BLD T1 BLD*', 'group', { t: 'grp', of: 'R', tiers: [[2, 4]] }, 'Each group of 2+ buildings = 4'],
+  ['Deer', 'LINE', 'T3 T2* T1', 'count', { t: 'tree', by: { 2: 4, 3: 4 } }, 'Each tree: height 2 = 4, height 3 = 4'],
+  ['Stork', 'LINE', 'Y BLD BLD*', 'group', { t: 'grp', of: 'R', tiers: [[3, 6]] }, 'Each group of 3+ buildings = 6'],
+  ['Dragonfly', 'LINE', 'T2 W* T2', 'group', { t: 'grp', of: 'W', tiers: [[3, 7]] }, 'Each blue group of 3+ = 7'],
+  ['Owl', 'TRI', 'T1 T1 T3*', 'count', { t: 'tree', by: { 1: 3, 2: 3, 3: 1 } }, 'Each tree: height 1 = 3, 2 = 3, 3 = 1']
+];
+var SPIRITS = SPIRIT_DATA.map(function (d, i) {
+  var toks = d[2].split(' '), target = -1;
+  var cells = toks.map(function (t, j) {
+    if (t.slice(-1) === '*') { target = j; t = t.slice(0, -1); }
+    return { q: SHAPES[d[1]][j][0], r: SHAPES[d[1]][j][1], req: t };
+  });
+  return { id: 101 + i, spirit: true, name: d[0], shape: d[1], cells: cells, target: target, ladder: [0], kind: d[3], rule: d[4], text: d[5] };
+});
+var CARD_BY_ID = {}; CARDS.concat(SPIRITS).forEach(function (c) { CARD_BY_ID[c.id] = c; });
+function cardLabel(id) { return id > 100 ? 'S' + (id - 100) : String(id); }
+
+// Stack a requirement code shows on a card. X = any base for a building.
+function reqStack(req) {
+  if (req === 'W' || req === 'Y') return [req];
+  if (req[0] === 'K') return Array(+req[1]).fill('K');
+  if (req[0] === 'T') return Array(+req[1] - 1).fill('B').concat(['G']);
+  if (req === 'BLD') return ['X', 'R'];
+  throw new Error('bad req ' + req);
+}
+function stackMatches(stack, req) {
+  if (req === 'BLD') return stack.length === 2 && stack[1] === 'R' && 'BKR'.indexOf(stack[0]) >= 0;
+  return stack.join('') === reqStack(req).join('');
+}
+
+function key(q, r) { return q + ',' + r; }
+function boardLayout(side) {
+  var lens = side === 'A' ? [5, 4, 5, 4, 5] : [4, 3, 4, 3, 4, 3, 4];
+  var out = [];
+  lens.forEach(function (n, c) {
+    for (var row = 0; row < n; row++) {
+      var q = c, r = row - (c - (c & 1)) / 2;
+      out.push({ q: q, r: r, id: key(q, r) });
+    }
+  });
+  return out;
+}
+function neighbors(s, id) {
+  var p = id.split(',').map(Number), out = [];
+  DIRS.forEach(function (d) { var k = key(p[0] + d[0], p[1] + d[1]); if (s.cells[k]) out.push(k); });
+  return out;
+}
+function shuffle(a, rnd) {
+  rnd = rnd || Math.random;
+  for (var i = a.length - 1; i > 0; i--) { var j = Math.floor(rnd() * (i + 1)); var t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+function newGame(side, rnd, withSpirit) {
+  var pouch = [];
+  Object.keys(POUCH).forEach(function (c) { for (var i = 0; i < POUCH[c]; i++) pouch.push(c); });
+  shuffle(pouch, rnd);
+  var cells = {};
+  boardLayout(side).forEach(function (h) { cells[h.id] = { stack: [], cube: null }; });
+  var deck = shuffle(CARDS.map(function (c) { return c.id; }), rnd);
+  var s = { v: 1, side: side, cells: cells, pouch: pouch, central: [[], [], []], deck: deck, row: [],
+    active: [], done: [], turn: null, over: false, started: Date.now() };
+  for (var i = 0; i < 3; i++) s.central[i] = s.pouch.splice(0, 3);
+  s.row = s.deck.splice(0, 3);
+  s.turn = { n: 1, took: -1, hand: [], cardTaken: false, phase: 'play' };
+  s.spirit = null; s.spiritOffer = null;
+  if (withSpirit) s.spiritOffer = shuffle(SPIRITS.map(function (c) { return c.id; }), rnd).slice(0, 2);
+  return s;
+}
+// Pick one of the 2 dealt spirits (the other goes back to the box). It sits with your open cards until its cube is placed.
+function chooseSpirit(s, i) {
+  if (!s.spiritOffer) return 'No spirit to choose.';
+  var id = s.spiritOffer[i]; if (!id) return 'Pick one of the 2 spirits.';
+  s.spirit = id; s.spiritOffer = null; s.active.push({ id: id, placed: 0 });
+  return null;
+}
+function spiritPoints(s, id) {
+  var c = s.cells, ks = Object.keys(c), rule = CARD_BY_ID[id].rule, pts = 0;
+  var isBld = function (k) { var st = c[k].stack; return st.length === 2 && st[1] === 'R'; };
+  if (rule.t === 'tree') ks.forEach(function (k) { var st = c[k].stack; if (st[st.length - 1] === 'G') pts += rule.by[st.length] || 0; });
+  if (rule.t === 'mtn') ks.forEach(function (k) { var st = c[k].stack; if (st.length && st.every(function (t) { return t === 'K'; })) pts += rule.by[st.length] || 0; });
+  if (rule.t === 'blue') ks.forEach(function (k) { if (c[k].stack.join('') === 'W') pts += rule.pts; });
+  if (rule.t === 'grp') {
+    var pred = rule.of === 'R' ? isBld : function (k) { return c[k].stack.join('') === rule.of; };
+    groups(s, pred).forEach(function (g) {
+      for (var i = 0; i < rule.tiers.length; i++) if (g.length >= rule.tiers[i][0]) { pts += rule.tiers[i][1]; break; }
+    });
+  }
+  return pts;
+}
+function canStack(stack, t) { return ALLOWED.indexOf(stack.join('') + t) >= 0; }
+function canPlaceToken(s, id, t) { var c = s.cells[id]; return !!c && c.cube === null && canStack(c.stack, t); }
+function takeSpace(s, i) {
+  if (s.over || s.turn.phase !== 'play') return 'The game is over.';
+  if (s.spiritOffer) return 'Choose your Nature\'s Spirit first.';
+  if (s.turn.took >= 0) return 'You already took tokens this turn.';
+  if (!s.central[i] || !s.central[i].length) return 'That space is empty.';
+  s.turn.took = i; s.turn.hand = s.central[i]; s.central[i] = [];
+  return null;
+}
+function placeToken(s, handIdx, id) {
+  var t = s.turn.hand[handIdx];
+  if (!t) return 'Pick a token first.';
+  var c = s.cells[id];
+  if (c.cube !== null) return 'An animal is on that space.';
+  if (!canStack(c.stack, t)) return 'A ' + NAMES[t] + ' token cannot go on that stack.';
+  c.stack.push(t); s.turn.hand.splice(handIdx, 1);
+  return null;
+}
+function takeCard(s, rowIdx) {
+  if (s.turn.phase !== 'play' || s.over) return 'Not now.';
+  if (s.turn.cardTaken) return 'You already took a card this turn.';
+  if (s.active.length >= 4) return 'You already hold 4 unfinished cards' + (s.spirit ? ' (your spirit counts until its cube is placed).' : '.');
+  var id = s.row[rowIdx]; if (!id) return 'No card there.';
+  s.row.splice(rowIdx, 1); s.active.push({ id: id, placed: 0 }); s.turn.cardTaken = true;
+  return null;
+}
+function rot(p, n) { var q = p[0], r = p[1]; for (var i = 0; i < n; i++) { var t = q; q = -r; r = t + r; } return [q, r]; }
+// Does card fit with its cube target on cell id? Checks all 6 rotations.
+function cubeFits(s, cardId, id) {
+  var card = CARD_BY_ID[cardId], cell = s.cells[id];
+  if (!cell || cell.cube !== null) return false;
+  var p = id.split(',').map(Number), tc = card.cells[card.target];
+  for (var n = 0; n < 6; n++) {
+    var t = rot([tc.q, tc.r], n), dq = p[0] - t[0], dr = p[1] - t[1], ok = true;
+    for (var j = 0; j < card.cells.length && ok; j++) {
+      var cc = rot([card.cells[j].q, card.cells[j].r], n), k = key(cc[0] + dq, cc[1] + dr);
+      ok = !!s.cells[k] && stackMatches(s.cells[k].stack, card.cells[j].req);
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+function placeCube(s, activeIdx, id) {
+  var a = s.active[activeIdx]; if (!a) return 'Pick one of your cards first.';
+  if (s.cells[id].cube !== null) return 'That space already has an animal.';
+  if (!cubeFits(s, a.id, id)) return 'The habitat for card ' + cardLabel(a.id) + ' is not there.';
+  s.cells[id].cube = a.id; a.placed++;
+  if (a.placed === CARD_BY_ID[a.id].ladder.length) { s.done.push(a); s.active.splice(activeIdx, 1); }
+  return null;
+}
+function emptyCount(s) { return Object.keys(s.cells).filter(function (k) { return !s.cells[k].stack.length; }).length; }
+function endTurn(s) {
+  if (s.turn.took < 0) return 'Take 3 tokens from the central board first.';
+  if (s.turn.hand.length) return 'Place all 3 tokens first.';
+  if (!s.turn.cardTaken && s.row.length && s.deck.length) { s.turn.phase = 'swap'; return null; }
+  finishTurn(s); return null;
+}
+function swapCard(s, rowIdx) {
+  if (rowIdx !== null && rowIdx !== undefined && s.row[rowIdx] && s.deck.length) s.row[rowIdx] = s.deck.shift();
+  finishTurn(s);
+}
+function finishTurn(s) {
+  s.central = [[], [], []];                 // solo: the other 6 tokens leave the game
+  while (s.row.length < 3 && s.deck.length) s.row.push(s.deck.shift());
+  if (emptyCount(s) <= 2) { s.over = 'board'; s.turn.phase = 'over'; return; }
+  for (var i = 0; i < 3; i++) s.central[i] = s.pouch.splice(0, 3);
+  if (s.central.some(function (sp) { return sp.length < 3; })) { s.over = 'pouch'; s.turn.phase = 'over'; return; }
+  s.turn = { n: s.turn.n + 1, took: -1, hand: [], cardTaken: false, phase: 'play' };
+}
+var RIVER = [0, 0, 2, 5, 8, 11, 15];
+function riverPoints(len) { return len <= 6 ? RIVER[len] : 15 + 4 * (len - 6); }
+function groups(s, pred) {
+  var seen = {}, out = [];
+  Object.keys(s.cells).forEach(function (k) {
+    if (seen[k] || !pred(k)) return;
+    var g = [], q = [k]; seen[k] = true;
+    while (q.length) { var x = q.shift(); g.push(x); neighbors(s, x).forEach(function (n) { if (!seen[n] && pred(n)) { seen[n] = true; q.push(n); } }); }
+    out.push(g);
+  });
+  return out;
+}
+function longestRiver(s) {
+  var isW = function (k) { return s.cells[k].stack.join('') === 'W'; }, best = 0;
+  Object.keys(s.cells).filter(isW).forEach(function (start) {
+    var dist = {}; dist[start] = 1; var q = [start];
+    while (q.length) { var x = q.shift(); best = Math.max(best, dist[x]);
+      neighbors(s, x).forEach(function (n) { if (isW(n) && !dist[n]) { dist[n] = dist[x] + 1; q.push(n); } }); }
+  });
+  return best;
+}
+function score(s) {
+  var c = s.cells, ks = Object.keys(c), top = function (k) { var st = c[k].stack; return st[st.length - 1]; };
+  var isMtn = function (k) { var st = c[k].stack; return st.length > 0 && st.every(function (t) { return t === 'K'; }); };
+  var trees = 0, mtns = 0, blds = 0;
+  ks.forEach(function (k) {
+    var st = c[k].stack, h = st.length;
+    if (top(k) === 'G') trees += [0, 1, 3, 7][h];
+    if (isMtn(k) && neighbors(s, k).some(isMtn)) mtns += [0, 1, 3, 7][h];
+    if (h === 2 && st[1] === 'R') {
+      var cols = {}; neighbors(s, k).forEach(function (n) { if (c[n].stack.length) cols[top(n)] = 1; });
+      if (Object.keys(cols).length >= 3) blds += 5;
+    }
+  });
+  var fields = 5 * groups(s, function (k) { return c[k].stack.join('') === 'Y'; }).filter(function (g) { return g.length >= 2; }).length;
+  var water, waterInfo;
+  if (s.side === 'A') { var len = longestRiver(s); water = riverPoints(len); waterInfo = 'river of ' + len; }
+  else { var isl = Math.max(1, groups(s, function (k) { return c[k].stack.join('') !== 'W'; }).length); water = 5 * isl; waterInfo = isl + (isl === 1 ? ' island' : ' islands'); }
+  var animals = 0, spirit = 0, spiritIf = 0, spiritPlaced = false;
+  s.active.concat(s.done).forEach(function (a) {
+    if (a.id > 100) { spiritPlaced = a.placed > 0; return; }
+    var L = CARD_BY_ID[a.id].ladder; if (a.placed) animals += L[L.length - a.placed];
+  });
+  if (s.spirit) { spiritIf = spiritPoints(s, s.spirit); if (spiritPlaced) spirit = spiritIf; }
+  var land = trees + mtns + fields + blds + water;
+  return { trees: trees, mountains: mtns, fields: fields, buildings: blds, water: water, waterInfo: waterInfo,
+    animals: animals, spirit: spirit, spiritIf: spiritIf, spiritPlaced: spiritPlaced, land: land, total: land + animals + spirit };
+}
+var SUN_STEPS = [40, 70, 90, 110, 130, 140, 150, 160];
+// Bonus suns by spirit (rule book p.11): none = 2, a group spirit = 1, a count spirit = 0. Set by the card chosen, cube or not.
+function sunsFor(points, side, spiritId) {
+  var n = 0; SUN_STEPS.forEach(function (t) { if (points >= t) n++; });
+  var sp = !spiritId ? 2 : CARD_BY_ID[spiritId].kind === 'group' ? 1 : 0;
+  return { score: n, face: side === 'A' ? 1 : 0, spirit: sp, total: n + (side === 'A' ? 1 : 0) + sp };
+}
+// ENGINE END
+
+// ---------- UI ----------
+var KEY = 'harmonies-solo-v1', LOGKEY = 'harmonies-solo-log-v1';
+var S = null, undoStack = [], sel = null, hints = true, msg = { text: '', cls: '' };
+function load(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+function save(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+function persist() { save(KEY, { s: S, h: undoStack, hints: hints }); }
+function snap() { undoStack.push(JSON.stringify(S)); }
+function say(text, cls) { msg = { text: text || '', cls: cls || '' }; }
+function act(fn) {
+  var before = JSON.stringify(S), err = fn();
+  if (err) { S = JSON.parse(before); say(err, 'bad'); } else { undoStack.push(before); }
+  render(); persist();
+}
+
+var SQ3 = Math.sqrt(3);
+function hexPts(cx, cy, s) {
+  var p = []; for (var i = 0; i < 6; i++) { var a = Math.PI / 3 * i; p.push((cx + s * Math.cos(a)).toFixed(1) + ',' + (cy + s * Math.sin(a)).toFixed(1)); }
+  return p.join(' ');
+}
+function stackSvg(stack, cx, cy, s) {
+  var out = '', n = stack.length;
+  stack.forEach(function (t, i) {
+    var r = s * (0.78 - 0.2 * i);
+    out += '<circle cx="' + cx + '" cy="' + cy + '" r="' + r.toFixed(1) + '" fill="' + COLORS[t] + '" stroke="rgba(0,0,0,.35)" stroke-width="1"' + (t === 'X' ? ' stroke-dasharray="3 2"' : '') + '/>';
+  });
+  if (n > 1) out += '<text x="' + cx + '" y="' + (cy + s * 0.17) + '" text-anchor="middle" font-size="' + (s * 0.5).toFixed(0) + '" font-weight="800" fill="#fff" stroke="rgba(0,0,0,.5)" stroke-width="0.6">' + n + '</text>';
+  return out;
+}
+function cubeSvg(cx, cy, s) {
+  var w = s * 0.42; return '<rect x="' + (cx + s * 0.25) + '" y="' + (cy - s * 0.75) + '" width="' + w + '" height="' + w + '" rx="2" fill="#E0862B" stroke="#7A3E0C" stroke-width="1"/>';
+}
+function hexToXY(q, r, s) { return [1.5 * s * q, SQ3 * s * (r + q / 2)]; }
+function patternSvg(card, s) {
+  var pts = card.cells.map(function (c) { return hexToXY(c.q, c.r, s); });
+  var xs = pts.map(function (p) { return p[0]; }), ys = pts.map(function (p) { return p[1]; });
+  var minX = Math.min.apply(0, xs) - s, minY = Math.min.apply(0, ys) - s * SQ3 / 2;
+  var w = Math.max.apply(0, xs) + s - minX, h = Math.max.apply(0, ys) + s * SQ3 / 2 - minY;
+  var out = '<svg width="' + w.toFixed(0) + '" height="' + h.toFixed(0) + '" viewBox="' + minX.toFixed(1) + ' ' + minY.toFixed(1) + ' ' + w.toFixed(1) + ' ' + h.toFixed(1) + '">';
+  card.cells.forEach(function (c, j) {
+    var p = pts[j];
+    out += '<polygon points="' + hexPts(p[0], p[1], s * 0.96) + '" fill="var(--hex)" stroke="var(--hex-edge)"/>';
+    out += stackSvg(reqStack(c.req), p[0], p[1], s);
+    if (j === card.target) out += cubeSvg(p[0], p[1], s);
+  });
+  return out + '</svg>';
+}
+function cardHtml(id, placed, opts) {
+  var card = CARD_BY_ID[id], L = card.ladder, n = L.length, lad = '';
+  if (card.spirit) {
+    return '<div class="card spirit' + (opts.sel ? ' sel' : '') + '" data-' + opts.kind + '="' + opts.idx + '"><span class="num">' + cardLabel(id) + ' · ' + card.name +
+      ' · +' + (card.kind === 'group' ? 1 : 0) + '&#9728;</span>' + patternSvg(card, 14) + '<span class="stext">' + card.text + '</span></div>';
+  }
+  L.forEach(function (v, i) { var hasCube = placed === null || i < n - placed; lad += '<span class="' + (hasCube ? 'cube' : 'empty') + '">' + v + '</span>'; });
+  return '<div class="card' + (opts.sel ? ' sel' : '') + '" data-' + opts.kind + '="' + opts.idx + '"><span class="num">' + cardLabel(id) + '</span>' +
+    patternSvg(card, 14) + '<div class="ladder">' + lad + '</div></div>';
+}
+function tokenSvg(t, size) { return '<svg width="' + size + '" height="' + size + '" viewBox="0 0 ' + size + ' ' + size + '">' + stackSvg([t], size / 2, size / 2, size / 1.6) + '</svg>'; }
+
+function render() {
+  if (!S) return;
+  var sc = score(S);
+  document.getElementById('meta').textContent = 'side ' + S.side + ' · turn ' + S.turn.n;
+  document.getElementById('pill').textContent = sc.total;
+  document.getElementById('pouch').textContent = S.pouch.length + ' in pouch';
+  document.getElementById('deckInfo').textContent = S.deck.length + ' in deck';
+  document.getElementById('doneInfo').textContent = S.done.length + ' completed · ' + S.active.length + '/4 open';
+
+  var cen = '';
+  S.central.forEach(function (sp, i) {
+    var inner = '<svg width="72" height="62" viewBox="0 0 72 62">';
+    var spots = [[18, 18], [54, 18], [36, 46]];
+    sp.forEach(function (t, j) { inner += stackSvg([t], spots[j][0], spots[j][1], 20); });
+    inner += '</svg>';
+    cen += '<button class="space' + (S.turn.took === i ? ' picked' : '') + '" data-space="' + i + '"' + (S.turn.took >= 0 || !sp.length || S.over ? ' disabled' : '') + ' aria-label="Take space ' + (i + 1) + '">' + inner + '</button>';
+  });
+  document.getElementById('central').innerHTML = cen;
+
+  var swap = S.turn.phase === 'swap';
+  var rc = '';
+  S.row.forEach(function (id, i) { rc += cardHtml(id, null, { kind: 'row', idx: i, sel: false }); });
+  document.getElementById('rowCards').innerHTML = rc || '<span class="meta">Deck empty</span>';
+
+  var h = '';
+  if (S.over) {
+    h = '<b>Game over.</b><span class="grow"></span><button class="primary" id="btnResult">See result</button>';
+  } else if (swap) {
+    h = '<span class="grow meta">You took no card. Tap a card above to swap it, or skip.</span><button class="primary" id="btnSkip">Skip</button>';
+  } else {
+    S.turn.hand.forEach(function (t, i) {
+      var isSel = sel && sel.kind === 'tok' && sel.idx === i;
+      h += '<button class="tok' + (isSel ? ' sel' : '') + '" data-tok="' + i + '" aria-label="' + NAMES[t] + ' token">' + tokenSvg(t, 40) + '</button>';
+    });
+    if (S.turn.took < 0) h += '<span class="meta">Tap a central space to take its 3 tokens.</span>';
+    h += '<span class="grow"></span><button class="primary" id="btnEnd"' + (S.turn.took < 0 || S.turn.hand.length ? ' disabled' : '') + '>End turn</button>';
+  }
+  document.getElementById('hand').innerHTML = h;
+  var m = document.getElementById('msg'); m.textContent = msg.text; m.className = 'msg ' + msg.cls;
+  document.getElementById('btnUndo').disabled = !undoStack.length;
+
+  var mc = '';
+  S.active.forEach(function (a, i) { mc += cardHtml(a.id, a.placed, { kind: 'mine', idx: i, sel: sel && sel.kind === 'card' && sel.idx === i }); });
+  document.getElementById('myCards').innerHTML = mc || '<span class="meta">Tap a card in the row to take it (once per turn).</span>';
+
+  renderBoard();
+  renderScore(sc);
+  document.getElementById('btnHints').textContent = 'Show fits: ' + (hints ? 'on' : 'off');
+}
+function renderBoard() {
+  var cells = boardLayout(S.side), s = S.side === 'A' ? 40 : 30;
+  var xs = [], ys = [];
+  cells.forEach(function (c) { var p = hexToXY(c.q, c.r, s); xs.push(p[0]); ys.push(p[1]); });
+  var minX = Math.min.apply(0, xs) - s - 2, minY = Math.min.apply(0, ys) - s - 2;
+  var w = Math.max.apply(0, xs) + s + 2 - minX, h = Math.max.apply(0, ys) + s + 2 - minY;
+  var tok = sel && sel.kind === 'tok' ? S.turn.hand[sel.idx] : null;
+  var card = sel && sel.kind === 'card' && S.active[sel.idx] ? S.active[sel.idx].id : null;
+  var out = '<svg viewBox="' + minX.toFixed(1) + ' ' + minY.toFixed(1) + ' ' + w.toFixed(1) + ' ' + h.toFixed(1) + '">';
+  cells.forEach(function (c, i) {
+    var p = hexToXY(c.q, c.r, s), cell = S.cells[c.id];
+    var legal = (tok && canPlaceToken(S, c.id, tok)) || (card && hints && cubeFits(S, card, c.id));
+    out += '<g data-cell="' + c.id + '"><polygon points="' + hexPts(p[0], p[1], s * 0.97) + '" fill="var(--hex)" stroke="' + (legal ? 'var(--legal)' : 'var(--hex-edge)') + '" stroke-width="' + (legal ? 4 : 1.5) + '"/>';
+    out += stackSvg(cell.stack, p[0], p[1], s);
+    if (cell.cube !== null) out += cubeSvg(p[0], p[1], s) + '<text x="' + (p[0] + s * 0.46) + '" y="' + (p[1] - s * 0.42) + '" text-anchor="middle" font-size="' + (s * 0.3).toFixed(0) + '" font-weight="800" fill="#fff">' + cardLabel(cell.cube) + '</text>';
+    out += '</g>';
+  });
+  document.getElementById('board').innerHTML = out + '</svg>';
+}
+function renderScore(sc) {
+  var su = sunsFor(sc.total, S.side, S.spirit);
+  var rows = [['G', 'Trees', sc.trees], ['K', 'Mountains', sc.mountains], ['Y', 'Fields', sc.fields], ['R', 'Buildings', sc.buildings],
+    ['W', 'Water (' + sc.waterInfo + ')', sc.water], [null, 'Animals', sc.animals]];
+  if (S.spirit) rows.push(['S', 'Spirit: ' + CARD_BY_ID[S.spirit].name + (sc.spiritPlaced ? '' : ' (cube not placed; would score ' + sc.spiritIf + ')'), sc.spirit]);
+  var h = '<table class="score">';
+  rows.forEach(function (r) {
+    var dot = r[0] === 'S' ? '<span class="dot" style="background:#8E6FB8;border-radius:2px"></span>' : r[0] ? '<span class="dot" style="background:' + COLORS[r[0]] + '"></span>' : '<span class="dot" style="background:#E0862B;border-radius:2px"></span>';
+    h += '<tr><td>' + dot + r[1] + '</td><td>' + r[2] + '</td></tr>';
+  });
+  h += '<tr class="total"><td>Total · <span class="sun">&#9728;</span> ' + su.total + ' suns</td><td>' + sc.total + '</td></tr></table>';
+  document.getElementById('scoreTable').innerHTML = h;
+}
+
+function showSheet(html) { document.getElementById('overlay').innerHTML = '<div class="overlay" id="ov"><div class="sheet">' + html + '</div></div>'; }
+function closeSheet() { document.getElementById('overlay').innerHTML = ''; }
+function newGameSheet() {
+  var last = load(LOGKEY + '-spirit', true);
+  showSheet('<h3>New solo game</h3><p class="meta">Pick the board side. Side A scores your longest river; side B scores islands.</p>' +
+    '<label class="chk"><input type="checkbox" id="spiritChk"' + (last ? ' checked' : '') + '> Play with a Nature\'s Spirit</label>' +
+    '<p class="meta">You get 2 spirits and keep 1. Without a spirit you earn 2 bonus suns.</p>' +
+    '<div class="opts"><button class="primary" data-new="A">Side A</button><button class="primary" data-new="B">Side B</button></div>' +
+    (S ? '<button data-close="1" style="width:100%">Cancel</button>' : ''));
+}
+function spiritSheet() {
+  var h = '<h3>Choose your Nature\'s Spirit</h3><p class="meta">Keep 1; the other goes back to the box. It counts as one of your 4 open cards until its cube is placed. Its points count only if the cube is on your board at the end.</p><div class="spirit-pick">';
+  S.spiritOffer.forEach(function (id, i) { h += cardHtml(id, 0, { kind: 'spirit', idx: i, sel: false }); });
+  showSheet(h + '</div><p class="meta">Bonus suns: +1 for a group spirit, +0 for a count spirit (shown on each card).</p>');
+}
+function menuSheet() {
+  var log = load(LOGKEY, []), best = {};
+  log.forEach(function (g) { if (!best[g.side] || g.total > best[g.side].total) best[g.side] = g; });
+  var h = '<h3>Menu</h3><div class="opts"><button class="primary" data-act="new">New game</button><button data-close="1">Close</button></div>';
+  h += '<h3>Bests</h3>' + ['A', 'B'].map(function (sd) { return '<div class="log-item"><span>Side ' + sd + '</span><span>' + (best[sd] ? best[sd].total + ' pts · ' + best[sd].suns + ' suns' : '-') + '</span></div>'; }).join('');
+  h += '<h3 style="margin-top:14px">Log</h3>' + (log.length ? log.slice().reverse().map(function (g) {
+    return '<div class="log-item"><span>' + new Date(g.date).toLocaleDateString() + ' · side ' + g.side + (g.spirit ? ' · ' + g.spirit : '') + ' · ' + g.turns + ' turns</span><span>' + g.total + ' pts · ' + g.suns + '&#9728;</span></div>';
+  }).join('') : '<p class="meta">No finished games yet.</p>');
+  showSheet(h);
+}
+function resultSheet() {
+  var sc = score(S), su = sunsFor(sc.total, S.side, S.spirit);
+  var spName = S.spirit ? CARD_BY_ID[S.spirit].name : '';
+  if (!S.logged) {
+    var log = load(LOGKEY, []);
+    log.push({ date: Date.now(), side: S.side, total: sc.total, suns: su.total, turns: S.turn.n, land: sc.land, animals: sc.animals, spirit: spName, spiritPts: sc.spirit });
+    save(LOGKEY, log); S.logged = true; persist();
+  }
+  showSheet('<h3>' + sc.total + ' points · <span class="sun">&#9728;</span> ' + su.total + ' suns</h3>' +
+    '<p class="meta">' + (S.over === 'pouch' ? 'The pouch ran out.' : '2 or fewer empty spaces left.') + ' Suns: ' + su.score + ' for score + ' + su.face + ' for side ' + S.side + ' + ' + su.spirit + (spName ? ' for the ' + spName + ' spirit' : ' for no spirit') + '.</p>' +
+    document.getElementById('scoreTable').innerHTML +
+    '<div class="opts"><button class="primary" data-act="new">New game</button><button data-close="1">Look at board</button></div>');
+}
+
+document.addEventListener('click', function (e) {
+  var t = e.target.closest('[data-space],[data-tok],[data-row],[data-mine],[data-spirit],[data-cell],[data-new],[data-close],[data-act],button,#ov');
+  if (!t) return;
+  if (t.id === 'ov' && e.target === t) { if (!(S && S.spiritOffer)) closeSheet(); return; }
+  if (t.dataset.new) {
+    var chk = document.getElementById('spiritChk'), withSp = !!(chk && chk.checked); save(LOGKEY + '-spirit', withSp);
+    S = newGame(t.dataset.new, null, withSp); undoStack = []; sel = null; closeSheet();
+    if (S.spiritOffer) { say('Choose your spirit.'); render(); persist(); spiritSheet(); return; }
+    say('New game. Take 3 tokens from a central space.'); render(); persist(); return;
+  }
+  if (t.dataset.spirit !== undefined) {
+    chooseSpirit(S, +t.dataset.spirit); closeSheet(); say('Spirit chosen: ' + CARD_BY_ID[S.spirit].name + '. Take 3 tokens from a central space.'); render(); persist(); return;
+  }
+  if (t.dataset.close) { closeSheet(); return; }
+  if (t.dataset.act === 'new') { newGameSheet(); return; }
+  if (t.id === 'btnMenu') { menuSheet(); return; }
+  if (!S) return;
+  if (t.id === 'btnUndo') { if (undoStack.length) { S = JSON.parse(undoStack.pop()); sel = null; say('Undone.'); render(); persist(); } return; }
+  if (t.id === 'btnHints') { hints = !hints; render(); persist(); return; }
+  if (t.id === 'btnResult') { resultSheet(); return; }
+  if (t.id === 'btnEnd') {
+    act(function () { return endTurn(S); }); sel = null;
+    if (!S.over && S.turn.phase === 'play') { undoStack = []; say('Turn ' + S.turn.n + '. Take 3 tokens.'); }
+    render(); persist(); if (S.over) resultSheet(); return;
+  }
+  if (t.id === 'btnSkip') { swapCard(S, null); undoStack = []; sel = null; say(S.over ? '' : 'Turn ' + S.turn.n + '. Take 3 tokens.'); render(); persist(); if (S.over) resultSheet(); return; }
+  if (t.dataset.space !== undefined) { sel = { kind: 'tok', idx: 0 }; say(''); act(function () { return takeSpace(S, +t.dataset.space); }); return; }
+  if (t.dataset.tok !== undefined) { sel = { kind: 'tok', idx: +t.dataset.tok }; say(''); render(); return; }
+  if (t.dataset.row !== undefined) {
+    if (S.turn.phase === 'swap') { swapCard(S, +t.dataset.row); undoStack = []; sel = null; say(S.over ? '' : 'Card swapped. Turn ' + S.turn.n + '.'); render(); persist(); if (S.over) resultSheet(); return; }
+    say(''); act(function () { var err = takeCard(S, +t.dataset.row); if (!err) sel = { kind: 'card', idx: S.active.length - 1 }; return err; }); return;
+  }
+  if (t.dataset.mine !== undefined) { var i = +t.dataset.mine; sel = sel && sel.kind === 'card' && sel.idx === i ? null : { kind: 'card', idx: i }; say(sel ? 'Tap the space where the animal goes (the square on the card).' : ''); render(); return; }
+  if (t.dataset.cell) {
+    if (S.over || S.turn.phase !== 'play') return;
+    if (sel && sel.kind === 'tok') {
+      say(''); act(function () { return placeToken(S, sel.idx, t.dataset.cell); });
+      if (!S.turn.hand.length) { sel = null; if (msg.cls !== 'bad') say('All tokens placed. Place animals or end the turn.'); }
+      else { if (sel.idx >= S.turn.hand.length) sel.idx = 0; }
+      render(); return;
+    }
+    if (sel && sel.kind === 'card') {
+      var before = S.done.length;
+      say(''); act(function () { return placeCube(S, sel.idx, t.dataset.cell); });
+      if (msg.cls !== 'bad') { say(S.done.length > before ? 'Card complete.' : 'Animal placed.', 'ok'); if (!S.active[sel.idx]) sel = null; render(); }
+      return;
+    }
+    say('Pick a token or one of your cards first.'); render();
+  }
+});
+
+(function init() {
+  var st = load(KEY, null);
+  if (st && st.s && st.s.v === 1) { S = st.s; undoStack = st.h || []; hints = st.hints !== false; render(); if (S.spiritOffer) spiritSheet(); }
+  else newGameSheet();
+})();
+</script>
+</body>
+</html>
