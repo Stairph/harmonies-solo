@@ -6,6 +6,9 @@
 <meta name="theme-color" content="#2E2418">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Harmonies Solo</title>
+<link rel="icon" type="image/png" href="icon.png">
+<link rel="apple-touch-icon" href="icon.png">
+<link rel="manifest" href="data:application/manifest+json,%7B%22name%22%3A%22Harmonies%20Solo%22%2C%22short_name%22%3A%22Harmonies%20Solo%22%2C%22start_url%22%3A%22.%22%2C%22display%22%3A%22standalone%22%2C%22background_color%22%3A%22%23F4EEE2%22%2C%22theme_color%22%3A%22%232E2418%22%2C%22orientation%22%3A%22portrait%22%2C%22icons%22%3A%5B%7B%22src%22%3A%22https%3A%2F%2Fstairph.github.io%2Fharmonies-solo%2Ficon.png%22%2C%22sizes%22%3A%22180x180%22%2C%22type%22%3A%22image%2Fpng%22%7D%5D%7D">
 <style>
 :root {
   --bg: #F4EEE2; --panel: #FFFDF8; --ink: #2E2418; --ink-soft: #6B5D4C; --line: #DDD2BE;
@@ -77,6 +80,19 @@ table.score tr.total td { border-bottom: none; font-size: 16px; }
 .sheet .spirit-pick .card { cursor: pointer; padding: 8px; }
 .chk { display: flex; align-items: center; gap: 8px; margin: 6px 0 2px; font-size: 14px; }
 .chk input { width: 20px; height: 20px; }
+.lab-sp { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lab-sp .card { cursor: pointer; padding: 6px; }
+.bar { height: 8px; background: var(--line); border-radius: 4px; overflow: hidden; margin: 6px 0 2px; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.tabs { display: flex; gap: 6px; margin: 8px 0; flex-wrap: wrap; }
+.tabs button { flex: 1; font-size: 13px; padding: 6px 4px; }
+.tabs button.on { outline: 3px solid var(--accent); }
+.lab-board svg { width: 100%; height: auto; display: block; margin: 8px 0; }
+.lab-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lab-pts { text-align: center; font-weight: 700; }
+.lab-turns { padding-left: 22px; margin: 4px 0; font-size: 13px; }
+.lab-turns li { padding: 3px 0; border-bottom: 1px solid var(--line); }
+.sheet h4 { margin: 14px 0 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--ink-soft); }
 </style>
 </head>
 <body>
@@ -116,7 +132,7 @@ table.score tr.total td { border-bottom: none; font-size: 16px; }
 
 <div id="overlay"></div>
 
-<script>
+<script id="main">
 // ENGINE START
 var COLORS = { W: '#3A8FC4', K: '#8C9197', B: '#7A5230', G: '#5E9B3A', Y: '#E3BC2E', R: '#C8473A', X: '#CDBFA5' };
 var NAMES = { W: 'blue', K: 'gray', B: 'brown', G: 'green', Y: 'yellow', R: 'red' };
@@ -376,6 +392,351 @@ function sunsFor(points, side, spiritId) {
   return { score: n, face: side === 'A' ? 1 : 0, spirit: sp, total: n + (side === 'A' ? 1 : 0) + sp };
 }
 // ENGINE END
+// SOLVER START
+// Spirit Lab: best-case boards under perfect draws. Pure functions on top of the engine above.
+// A board is an array of stack codes ('' = empty, 'BBG' = 3-high tree, ...), one per space in boardLayout order.
+var LAB_STACKS = [''].concat(ALLOWED);
+var LAB_MAX_TURNS = 13;   // 120 tokens: 9 at setup + 9 per refill; the refill after turn 13 fails
+// Stacks are coded as small ints during the search; these tables hold each code's properties.
+var LAB_CODE = {}, LAB_LEN = [], LAB_TOP = [], LAB_MTN = [], LAB_BLD = [], LAB_TREE = [], LAB_Y = [], LAB_W = [], LAB_NOTW = [];
+LAB_STACKS.forEach(function (c, i) {
+  LAB_CODE[c] = i; LAB_LEN[i] = c.length; LAB_TOP[i] = c ? c[c.length - 1] : '';
+  LAB_MTN[i] = c.length > 0 && /^K+$/.test(c); LAB_BLD[i] = c.length === 2 && c[1] === 'R';
+  LAB_TREE[i] = c && c[c.length - 1] === 'G' ? c.length : 0; LAB_Y[i] = c === 'Y'; LAB_W[i] = c === 'W'; LAB_NOTW[i] = c !== 'W';
+});
+var LAB_REQ = {};
+function labReqTable(req) {
+  if (!LAB_REQ[req]) LAB_REQ[req] = LAB_STACKS.map(function (c) {
+    if (req === 'BLD') return c.length === 2 && c[1] === 'R' && 'BKR'.indexOf(c[0]) >= 0;
+    return c === reqStack(req).join('');
+  });
+  return LAB_REQ[req];
+}
+function labReqOk(code, req) { return labReqTable(req)[LAB_CODE[code]]; }
+function labRng(seed) { var a = seed | 0; return function () { a = a + 0x6D2B79F5 | 0; var t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function labCodes(st) { return st.map(function (c) { return LAB_CODE[c]; }); }
+function labStrings(cs) { return cs.map(function (c) { return LAB_STACKS[c]; }); }
+// Static geometry for one side: neighbours and, per card and target space, every rotation that fits on the board.
+// A rotation is a flat list [space, reqTable, space, reqTable, ...].
+function labPrep(side) {
+  var L = boardLayout(side), idx = {};
+  L.forEach(function (h, i) { idx[h.id] = i; });
+  var cols = {}; L.forEach(function (h) { (cols[h.q] = cols[h.q] || []).push(h); });
+  var label = L.map(function (h) { return String.fromCharCode(65 + h.q) + (cols[h.q].indexOf(h) + 1); });
+  var nb = L.map(function (h) { return DIRS.map(function (d) { return idx[key(h.q + d[0], h.r + d[1])]; }).filter(function (x) { return x !== undefined; }); });
+  var rots = {};
+  CARDS.concat(SPIRITS).forEach(function (card) {
+    var tc = card.cells[card.target];
+    rots[card.id] = L.map(function (h) {
+      var out = [];
+      for (var n = 0; n < 6; n++) {
+        var t = rot([tc.q, tc.r], n), dq = h.q - t[0], dr = h.r - t[1], cells = [];
+        for (var j = 0; j < card.cells.length; j++) {
+          var cc = rot([card.cells[j].q, card.cells[j].r], n), i = idx[key(cc[0] + dq, cc[1] + dr)];
+          if (i === undefined) { cells = null; break; }
+          cells.push(i, labReqTable(card.cells[j].req));
+        }
+        if (cells) out.push(cells);
+      }
+      return out;
+    });
+  });
+  return { side: side, L: L, n: L.length, nb: nb, rots: rots, label: label, seen: new Int32Array(L.length), q: new Int32Array(L.length), mark: 0 };
+}
+// Sizes of the connected groups of spaces whose code passes `pred` (a table by code).
+function labGroups(P, cs, pred) {
+  var out = [], seen = P.seen, q = P.q, m = ++P.mark;
+  for (var i = 0; i < P.n; i++) {
+    if (seen[i] === m || !pred[cs[i]]) continue;
+    var h = 0, size = 0; q[h++] = i; seen[i] = m;
+    while (h) { var x = q[--h], nb = P.nb[x]; size++; for (var j = 0; j < nb.length; j++) { var y = nb[j]; if (seen[y] !== m && pred[cs[y]]) { seen[y] = m; q[h++] = y; } } }
+    out.push(size);
+  }
+  return out;
+}
+var LAB_H = [0, 1, 3, 7];
+function labLand(P, cs) {
+  var trees = 0, mtns = 0, blds = 0, i, j, nb;
+  for (i = 0; i < P.n; i++) {
+    var c = cs[i]; if (!c) continue;
+    if (LAB_TREE[c]) trees += LAB_H[LAB_TREE[c]];
+    nb = P.nb[i];
+    if (LAB_MTN[c]) { for (j = 0; j < nb.length; j++) if (LAB_MTN[cs[nb[j]]]) { mtns += LAB_H[LAB_LEN[c]]; break; } }
+    if (LAB_BLD[c]) {
+      var cols = '';
+      for (j = 0; j < nb.length; j++) { var t = LAB_TOP[cs[nb[j]]]; if (t && cols.indexOf(t) < 0) cols += t; }
+      if (cols.length >= 3) blds += 5;
+    }
+  }
+  var fields = 0; labGroups(P, cs, LAB_Y).forEach(function (g) { if (g >= 2) fields += 5; });
+  var water;
+  if (P.side === 'A') {
+    var best = 0, dist = new Int32Array(P.n), q = P.q;
+    for (var s = 0; s < P.n; s++) {
+      if (!LAB_W[cs[s]]) continue;
+      dist.fill(0); dist[s] = 1; var h = 0, tl = 0; q[tl++] = s;
+      while (h < tl) { var x = q[h++]; if (dist[x] > best) best = dist[x]; nb = P.nb[x]; for (j = 0; j < nb.length; j++) { var y = nb[j]; if (LAB_W[cs[y]] && !dist[y]) { dist[y] = dist[x] + 1; q[tl++] = y; } } }
+    }
+    water = riverPoints(best);
+  } else water = 5 * Math.max(1, labGroups(P, cs, LAB_NOTW).length);
+  return { trees: trees, mountains: mtns, fields: fields, buildings: blds, water: water, total: trees + mtns + fields + blds + water };
+}
+function labSpirit(P, cs, id) {
+  var rule = CARD_BY_ID[id].rule, pts = 0;
+  cs.forEach(function (c) {
+    if (rule.t === 'tree' && LAB_TREE[c]) pts += rule.by[LAB_TREE[c]] || 0;
+    if (rule.t === 'mtn' && LAB_MTN[c]) pts += rule.by[LAB_LEN[c]] || 0;
+    if (rule.t === 'blue' && LAB_W[c]) pts += rule.pts;
+  });
+  if (rule.t === 'grp') {
+    labGroups(P, cs, rule.of === 'R' ? LAB_BLD : rule.of === 'W' ? LAB_W : LAB_Y).forEach(function (g) {
+      for (var i = 0; i < rule.tiers.length; i++) if (g >= rule.tiers[i][0]) { pts += rule.tiers[i][1]; break; }
+    });
+  }
+  return pts;
+}
+// Spaces where a card's cube could sit on this finished board.
+function labFits(P, cs, id) {
+  var out = [], R = P.rots[id];
+  for (var i = 0; i < P.n; i++) {
+    var rs = R[i];
+    for (var r = 0; r < rs.length; r++) {
+      var a = rs[r], ok = true;
+      for (var j = 0; j < a.length; j += 2) if (!a[j + 1][cs[a[j]]]) { ok = false; break; }
+      if (ok) { out.push(i); break; }
+    }
+  }
+  return out;
+}
+var LAB_COLS = LAB_STACKS.map(function (c) { var o = { W: 0, K: 0, B: 0, G: 0, Y: 0, R: 0 }; for (var i = 0; i < c.length; i++) o[c[i]]++; return o; });
+function labCounts(cs) {
+  var n = 0, empty = 0, col = { W: 0, K: 0, B: 0, G: 0, Y: 0, R: 0 };
+  cs.forEach(function (c) { if (!c) empty++; n += LAB_LEN[c]; var o = LAB_COLS[c]; for (var k in o) col[k] += o[k]; });
+  return { n: n, empty: empty, col: col };
+}
+// How far a board breaks the hard limits (0 = playable). Tokens come 3 per turn; the game either ends
+// on the board (2 or fewer empty spaces) or runs all 13 turns (39 tokens).
+function labViolation(cnt) {
+  var v = 0;
+  if (cnt.n % 3) v += 1;
+  if (cnt.n > 3 * LAB_MAX_TURNS) v += (cnt.n - 3 * LAB_MAX_TURNS) / 3 + 1;
+  if (cnt.empty > 2 && cnt.n < 3 * LAB_MAX_TURNS) v += 1 + (3 * LAB_MAX_TURNS - cnt.n) / 6;
+  if (cnt.n < 3) v += 1;
+  Object.keys(POUCH).forEach(function (c) { if (cnt.col[c] > POUCH[c]) v += cnt.col[c] - POUCH[c]; });
+  return v;
+}
+// Score a finished board: land + spirit (if its cube fits) + a greedy pick of animal cards (1 per turn).
+function labEval(P, cs, spiritId, banned) {
+  var cnt = labCounts(cs), land = labLand(P, cs), turns = cnt.empty <= 2 ? Math.ceil(cnt.n / 3) : LAB_MAX_TURNS;
+  var fits = {}, demand = new Int32Array(P.n), used = new Uint8Array(P.n);
+  CARDS.forEach(function (c) { if (banned && banned[c.id]) return; var f = fits[c.id] = labFits(P, cs, c.id); for (var i = 0; i < f.length; i++) demand[f[i]]++; });
+  var byDemand = function (a, b) { return demand[a] - demand[b]; };
+  var sFits = labFits(P, cs, spiritId).sort(byDemand), spiritCell = sFits.length ? sFits[0] : -1;
+  if (spiritCell >= 0) used[spiritCell] = 1;
+  var spirit = spiritCell >= 0 ? labSpirit(P, cs, spiritId) : 0;
+  var picks = [], animals = 0, taken = {};
+  while (picks.length < turns) {
+    var best = null;
+    for (var ci = 0; ci < CARDS.length; ci++) {
+      var c = CARDS[ci], f = fits[c.id];
+      if (taken[c.id] || !f || !f.length) continue;
+      var avail = 0; for (var x = 0; x < f.length; x++) if (!used[f[x]]) avail++;
+      var k = Math.min(c.ladder.length, avail); if (!k) continue;
+      var v = c.ladder[c.ladder.length - k];
+      if (!best || v > best.v || (v === best.v && k < best.k)) best = { c: c, v: v, k: k };
+    }
+    if (!best) break;
+    var cells = fits[best.c.id].filter(function (i) { return !used[i]; }).sort(byDemand).slice(0, best.k);
+    cells.forEach(function (i) { used[i] = 1; });
+    taken[best.c.id] = 1; picks.push({ id: best.c.id, cells: cells, pts: best.v }); animals += best.v;
+  }
+  return { cs: cs, land: land, spirit: spirit, spiritCell: spiritCell, picks: picks, animals: animals,
+    total: land.total + animals + spirit, cnt: cnt, turns: turns, viol: labViolation(cnt) };
+}
+// Simulated annealing over finished boards. Returns the best playable board found (with its spirit cube placed).
+// `from` (optional) seeds the search with a copy of a good board, a third of its spaces reshuffled, at a lower temperature.
+function labAnneal(P, spiritId, seed, iters, onTick, from) {
+  var rnd = labRng(seed), cs = [], i, NS = LAB_STACKS.length;
+  for (i = 0; i < P.n; i++) cs.push(from && rnd() > 0.33 ? from[i] : Math.floor(rnd() * NS));
+  var cur = labEval(P, cs, spiritId), obj = function (e) { return e.total - 25 * e.viol - (e.spiritCell < 0 ? 15 : 0); };
+  var best = null, T0 = from ? 4 : 12, T1 = 0.3, bySize = [];
+  LAB_STACKS.forEach(function (c, k) { (bySize[c.length] = bySize[c.length] || []).push(k); });
+  for (var it = 0; it < iters; it++) {
+    var temp = T0 * Math.pow(T1 / T0, it / iters), ncs = cur.cs.slice(), m = rnd();
+    var a = Math.floor(rnd() * P.n);
+    if (m < 0.45) ncs[a] = Math.floor(rnd() * NS);
+    else if (m < 0.8) { var same = bySize[LAB_LEN[ncs[a]]]; ncs[a] = same[Math.floor(rnd() * same.length)]; }
+    else { var b = Math.floor(rnd() * P.n), t = ncs[a]; ncs[a] = ncs[b]; ncs[b] = t; }
+    var e = labEval(P, ncs, spiritId), d = obj(e) - obj(cur);
+    if (d >= 0 || rnd() < Math.exp(d / temp)) {
+      cur = e;
+      if (!cur.viol && cur.spiritCell >= 0 && (!best || cur.total > best.total)) best = cur;
+    }
+    if (onTick && it % 2000 === 0) onTick(it / iters, best ? best.total : 0);
+  }
+  if (best) { best = labPolish(P, best, spiritId); best.st = labStrings(best.cs); }
+  return best;
+}
+// Hill-climb to a local best with moves that keep the token count: swap two spaces, or swap a stack for another of the same height.
+function labPolish(P, ev, spiritId) {
+  var bySize = []; LAB_STACKS.forEach(function (c, k) { (bySize[c.length] = bySize[c.length] || []).push(k); });
+  var ok = function (e) { return !e.viol && e.spiritCell >= 0; }, better = true;
+  while (better) {
+    better = false;
+    for (var a = 0; a < P.n && !better; a++) {
+      var same = bySize[LAB_LEN[ev.cs[a]]];
+      for (var x = 0; x < same.length && !better; x++) {
+        if (same[x] === ev.cs[a]) continue;
+        var ncs = ev.cs.slice(); ncs[a] = same[x];
+        var e = labEval(P, ncs, spiritId); if (ok(e) && e.total > ev.total) { ev = e; better = true; }
+      }
+      for (var b = a + 1; b < P.n && !better; b++) {
+        if (ev.cs[a] === ev.cs[b]) continue;
+        var ncs2 = ev.cs.slice(); ncs2[a] = ev.cs[b]; ncs2[b] = ev.cs[a];
+        var e2 = labEval(P, ncs2, spiritId); if (ok(e2) && e2.total > ev.total) { ev = e2; better = true; }
+      }
+    }
+  }
+  return ev;
+}
+// Turn plan for a finished board, replayed through the real engine with rigged draws.
+// Returns { ok, err, score, turns: [{ n, card, tokens: [[space, colour]], cubes: [[card, space]] }] }.
+function labReplay(P, spiritId, ev) {
+  var st = ev.st, cnt = labCounts(labCodes(st)), T = cnt.empty <= 2 ? cnt.n / 3 : LAB_MAX_TURNS;
+  if (labViolation(cnt) || T !== Math.floor(T)) return { ok: false, err: 'board breaks the token limits' };
+  // Habitat spaces per card, so the build order finishes one card's habitat before the next.
+  var habitat = function (id, cell) {
+    var rs = P.rots[id][cell], cs = labCodes(st);
+    for (var r = 0; r < rs.length; r++) {
+      var a = rs[r], out = [], ok = true;
+      for (var j = 0; j < a.length; j += 2) { if (!a[j + 1][cs[a[j]]]) { ok = false; break; } out.push(a[j]); }
+      if (ok) return out;
+    }
+    return [cell];
+  };
+  var prio = [], seen = {};
+  var add = function (i) { if (!seen[i] && st[i]) { seen[i] = 1; prio.push(i); } };
+  if (ev.spiritCell >= 0) habitat(spiritId, ev.spiritCell).forEach(add);
+  ev.picks.forEach(function (p) { p.cells.forEach(function (c) { habitat(p.id, c).forEach(add); }); });
+  for (var i = 0; i < P.n; i++) add(i);
+  // Last turn: when the board ends the game, it must bring the empty count to 2 or fewer, and no earlier turn may.
+  var last = [], lastCells = {};
+  if (cnt.empty <= 2) {
+    // `need` spaces get their whole stack on the last turn (shortest stacks, latest in the order);
+    // any slot left takes the top token of a taller stack.
+    var need = 3 - cnt.empty;
+    var byLen = prio.slice().reverse().sort(function (a, b) { return st[a].length - st[b].length; });
+    for (var j = 0; j < byLen.length && need > 0; j++) {
+      var c = byLen[j];
+      if (last.length + st[c].length > 3 - (need - 1)) continue;
+      st[c].split('').forEach(function (t) { last.push([c, t]); }); lastCells[c] = st[c].length; need--;
+    }
+    if (need > 0) return { ok: false, err: 'no way to end on the board on the last turn' };
+    for (var k = prio.length - 1; k >= 0 && last.length < 3; k--) {
+      var c2 = prio[k];
+      if (!lastCells[c2] && st[c2].length > 1) { last.unshift([c2, st[c2][st[c2].length - 1]]); lastCells[c2] = 1; }
+    }
+    if (last.length !== 3) return { ok: false, err: 'last turn could not be filled' };
+  }
+  var seq = [];
+  prio.forEach(function (c) { var keep = st[c].length - (lastCells[c] || 0); for (var t = 0; t < keep; t++) seq.push([c, st[c][t]]); });
+  seq = seq.concat(last);
+  // Lower tokens of a space always come first: a last-turn top token sits after the rest of its stack.
+  var turns = []; for (var t2 = 0; t2 < T; t2++) turns.push(seq.slice(3 * t2, 3 * t2 + 3));
+  // Rig the pouch: each turn's 3 tokens fill central space 1; fillers come from what is left.
+  var pool = []; Object.keys(POUCH).forEach(function (col) { for (var x = 0; x < POUCH[col] - cnt.col[col]; x++) pool.push(col); });
+  var pouch = [];
+  turns.forEach(function (tk) { tk.forEach(function (p) { pouch.push(p[1]); }); for (var f = 0; f < 6; f++) pouch.push(pool.pop()); });
+  pouch = pouch.concat(pool);
+  var s = newGame(P.side, labRng(1), true);
+  var other = SPIRITS[0].id === spiritId ? SPIRITS[1].id : SPIRITS[0].id;
+  s.spiritOffer = [spiritId, other]; chooseSpirit(s, 0);
+  s.pouch = pouch; s.central = [s.pouch.splice(0, 3), s.pouch.splice(0, 3), s.pouch.splice(0, 3)];
+  var queue = ev.picks.map(function (p) { return p.id; });
+  s.deck = queue.concat(CARDS.map(function (c) { return c.id; }).filter(function (id) { return queue.indexOf(id) < 0; }));
+  s.row = s.deck.splice(0, 3);
+  var plan = {}; plan[spiritId] = ev.spiritCell >= 0 ? [ev.spiritCell] : [];
+  ev.picks.forEach(function (p) { plan[p.id] = p.cells.slice(); });
+  var log = [];
+  var tryCubes = function (entry) {
+    var again = true;
+    while (again) {
+      again = false;
+      for (var a = 0; a < s.active.length; a++) {
+        var id = s.active[a].id, todo = plan[id] || [];
+        for (var q = 0; q < todo.length; q++) {
+          var cid = P.L[todo[q]].id;
+          if (s.cells[cid].stack.join('') === st[todo[q]] && !placeCube(s, a, cid)) {
+            entry.cubes.push([id, todo[q]]); todo.splice(q, 1); again = true; break;
+          }
+        }
+        if (again) break;
+      }
+    }
+  };
+  for (var n = 0; n < T; n++) {
+    if (s.over) return { ok: false, err: 'game ended early on turn ' + n };
+    var entry = { n: n + 1, card: null, tokens: [], cubes: [] };
+    if (queue.length && s.active.length < 4) {
+      var ri = s.row.indexOf(queue[0]);
+      if (ri >= 0 && !takeCard(s, ri)) entry.card = queue.shift();
+    }
+    tryCubes(entry);
+    var err = takeSpace(s, 0); if (err) return { ok: false, err: err };
+    for (var z = 0; z < turns[n].length; z++) {
+      var tok = turns[n][z], hi = s.turn.hand.indexOf(tok[1]);
+      err = placeToken(s, hi, P.L[tok[0]].id); if (err) return { ok: false, err: 'turn ' + (n + 1) + ': ' + err };
+      entry.tokens.push(tok); tryCubes(entry);
+    }
+    endTurn(s); if (s.turn.phase === 'swap') swapCard(s, null);
+    log.push(entry);
+  }
+  if (!s.over) return { ok: false, err: 'game did not end after the last turn' };
+  var left = Object.keys(plan).filter(function (id) { return plan[id].length; });
+  if (left.length) return { ok: false, err: 'cards not finished: ' + left.map(function (id) { return cardLabel(+id); }).join(', '), unfinished: left.map(Number) };
+  var sc = score(s);
+  return { ok: true, score: sc, suns: sunsFor(sc.total, P.side, spiritId), turns: log, state: s };
+}
+// Full run for one spirit and side: several annealing restarts, each result replayed and verified.
+// If the replay cannot finish a card in time, that card is dropped and the board re-scored.
+// Replay a board; if a card can't be finished in time, drop it, re-pick cards and try again.
+function labVerify(P, spiritId, ev) {
+  var banned = {}, rep = labReplay(P, spiritId, ev), guard = 0;
+  while (!rep.ok && rep.unfinished && guard++ < 6) {
+    rep.unfinished.forEach(function (id) { banned[id] = 1; });
+    ev = labEval(P, ev.cs, spiritId, banned); ev.st = labStrings(ev.cs); rep = labReplay(P, spiritId, ev);
+  }
+  if (!rep.ok) return null;
+  return { st: ev.st, picks: ev.picks, spiritCell: ev.spiritCell, land: ev.land, spirit: ev.spirit,
+    claimed: ev.total, score: rep.score, suns: rep.suns, turns: rep.turns };
+}
+function labSolve(side, spiritId, opts, onProgress) {
+  opts = opts || {};
+  var P = labPrep(side), restarts = opts.restarts || 6, iters = opts.iters || 20000, seed = opts.seed || 1, results = [];
+  for (var r = 0; r < restarts; r++) {
+    // First half explores from random boards; second half refines the best board so far.
+    var lead = r >= restarts / 2 && results.length ? results.reduce(function (a, b) { return b.score.total > a.score.total ? b : a; }) : null;
+    var ev = labAnneal(P, spiritId, seed * 7919 + r, iters, function (f, b) { if (onProgress) onProgress((r + f) / restarts, b); }, lead ? labCodes(lead.st) : null);
+    if (!ev) continue;
+    var v = labVerify(P, spiritId, ev);
+    if (v) results.push(v);
+  }
+  return labMerge(P.side, spiritId, [results]);
+}
+// Merge result lists (one per worker): unique boards, best first, top 3, and how often each animal card appears.
+function labMerge(side, spiritId, lists) {
+  var uniq = {}, out = [];
+  [].concat.apply([], lists).sort(function (a, b) { return b.score.total - a.score.total; }).forEach(function (x) {
+    var sig = x.st.join('|'); if (!uniq[sig]) { uniq[sig] = 1; out.push(x); }
+  });
+  // Card ranking counts only strong boards: within 5% of the best found.
+  var strong = out.filter(function (x) { return out.length && x.score.total >= 0.95 * out[0].score.total; }), tally = {};
+  strong.forEach(function (x) { x.picks.forEach(function (p) { var t = tally[p.id] = tally[p.id] || { id: p.id, n: 0, pts: 0 }; t.n++; t.pts += p.pts; }); });
+  var ranking = Object.keys(tally).map(function (k) { var t = tally[k]; return { id: t.id, boards: t.n, avg: Math.round(t.pts / t.n * 10) / 10 }; })
+    .sort(function (a, b) { return b.boards - a.boards || b.avg - a.avg; });
+  return { side: side, spirit: spiritId, labels: labPrep(side).label, boards: out.slice(0, 3), list: out, all: out.length, strong: strong.length, ranking: ranking };
+}
+// SOLVER END
 
 // ---------- UI ----------
 var KEY = 'harmonies-solo-v1', LOGKEY = 'harmonies-solo-log-v1';
@@ -525,6 +886,7 @@ function newGameSheet() {
     '<label class="chk"><input type="checkbox" id="spiritChk"' + (last ? ' checked' : '') + '> Play with a Nature\'s Spirit</label>' +
     '<p class="meta">You get 2 spirits and keep 1. Without a spirit you earn 2 bonus suns.</p>' +
     '<div class="opts"><button class="primary" data-new="A">Side A</button><button class="primary" data-new="B">Side B</button></div>' +
+    '<button data-lab="open" style="width:100%;margin-bottom:8px">Spirit Lab: best boards per spirit</button>' +
     (S ? '<button data-close="1" style="width:100%">Cancel</button>' : ''));
 }
 function spiritSheet() {
@@ -535,7 +897,7 @@ function spiritSheet() {
 function menuSheet() {
   var log = load(LOGKEY, []), best = {};
   log.forEach(function (g) { if (!best[g.side] || g.total > best[g.side].total) best[g.side] = g; });
-  var h = '<h3>Menu</h3><div class="opts"><button class="primary" data-act="new">New game</button><button data-close="1">Close</button></div>';
+  var h = '<h3>Menu</h3><div class="opts"><button class="primary" data-act="new">New game</button><button data-lab="open">Spirit Lab</button><button data-close="1">Close</button></div>';
   h += '<h3>Bests</h3>' + ['A', 'B'].map(function (sd) { return '<div class="log-item"><span>Side ' + sd + '</span><span>' + (best[sd] ? best[sd].total + ' pts · ' + best[sd].suns + ' suns' : '-') + '</span></div>'; }).join('');
   h += '<h3 style="margin-top:14px">Log</h3>' + (log.length ? log.slice().reverse().map(function (g) {
     return '<div class="log-item"><span>' + new Date(g.date).toLocaleDateString() + ' · side ' + g.side + (g.spirit ? ' · ' + g.spirit : '') + ' · ' + g.turns + ' turns</span><span>' + g.total + ' pts · ' + g.suns + '&#9728;</span></div>';
@@ -556,10 +918,142 @@ function resultSheet() {
     '<div class="opts"><button class="primary" data-act="new">New game</button><button data-close="1">Look at board</button></div>');
 }
 
+// ---------- Spirit Lab UI ----------
+// Bump LAB_VERSION whenever the solver changes, so old cached results are not shown as current.
+var LAB_VERSION = 1, LAB_KEY = 'harmonies-solo-lab-v' + LAB_VERSION;
+var LAB = { side: 'A', spirit: 101, board: 0, run: null, msg: '', mem: {} };
+// Results live in memory first, so a run still shows when storage is blocked or full.
+function labCache() { var c = load(LAB_KEY, {}); Object.keys(LAB.mem).forEach(function (k) { c[k] = LAB.mem[k]; }); return c; }
+function labSourceText() {
+  var txt = document.getElementById('main').textContent;
+  return txt.split('// ' + 'ENGINE START')[1].split('// ' + 'SOLVER END')[0];
+}
+function labBoardSvg(side, st, cubes, labels) {
+  var cells = boardLayout(side), s = side === 'A' ? 40 : 30, xs = [], ys = [];
+  cells.forEach(function (c) { var p = hexToXY(c.q, c.r, s); xs.push(p[0]); ys.push(p[1]); });
+  var minX = Math.min.apply(0, xs) - s - 2, minY = Math.min.apply(0, ys) - s - 2;
+  var w = Math.max.apply(0, xs) + s + 2 - minX, h = Math.max.apply(0, ys) + s + 2 - minY;
+  var out = '<svg viewBox="' + minX.toFixed(1) + ' ' + minY.toFixed(1) + ' ' + w.toFixed(1) + ' ' + h.toFixed(1) + '">';
+  cells.forEach(function (c, i) {
+    var p = hexToXY(c.q, c.r, s);
+    out += '<polygon points="' + hexPts(p[0], p[1], s * 0.97) + '" fill="var(--hex)" stroke="var(--hex-edge)" stroke-width="1.5"/>';
+    out += stackSvg(st[i] ? st[i].split('') : [], p[0], p[1], s);
+    out += '<text x="' + (p[0] - s * 0.5) + '" y="' + (p[1] + s * 0.75) + '" font-size="' + (s * 0.26).toFixed(0) + '" fill="var(--ink-soft)">' + labels[i] + '</text>';
+    if (cubes[i] !== undefined) out += cubeSvg(p[0], p[1], s) + '<text x="' + (p[0] + s * 0.46) + '" y="' + (p[1] - s * 0.42) + '" text-anchor="middle" font-size="' + (s * 0.3).toFixed(0) + '" font-weight="800" fill="#fff">' + cardLabel(cubes[i]) + '</text>';
+  });
+  return out + '</svg>';
+}
+function labResultsHtml(res) {
+  if (!res) return '<p class="meta">Not run yet for this spirit and side.</p>';
+  if (!res.boards.length) return '<p class="meta">No playable board found. Run again.</p>';
+  var bi = Math.min(LAB.board, res.boards.length - 1), b = res.boards[bi], sc = b.score, su = b.suns, sp = CARD_BY_ID[res.spirit];
+  var h = '<div class="tabs">' + res.boards.map(function (x, i) { return '<button data-lab="board:' + i + '"' + (i === bi ? ' class="on"' : '') + '>Board ' + (i + 1) + ' · ' + x.score.total + '</button>'; }).join('') + '</div>';
+  var rows = [['G', 'Trees', sc.trees], ['K', 'Mountains', sc.mountains], ['Y', 'Fields', sc.fields], ['R', 'Buildings', sc.buildings],
+    ['W', 'Water (' + sc.waterInfo + ')', sc.water], [null, 'Animals', sc.animals], ['S', 'Spirit: ' + sp.name, sc.spirit]];
+  h += '<table class="score">' + rows.map(function (r) {
+    var dot = r[0] === 'S' ? '<span class="dot" style="background:#8E6FB8;border-radius:2px"></span>' : r[0] ? '<span class="dot" style="background:' + COLORS[r[0]] + '"></span>' : '<span class="dot" style="background:#E0862B;border-radius:2px"></span>';
+    return '<tr><td>' + dot + r[1] + '</td><td>' + r[2] + '</td></tr>';
+  }).join('') + '<tr class="total"><td>Total · <span class="sun">&#9728;</span> ' + su.total + ' suns</td><td>' + sc.total + '</td></tr></table>';
+  var cubes = {}; b.turns.forEach(function (t) { t.cubes.forEach(function (c) { cubes[c[1]] = c[0]; }); });
+  h += '<div class="lab-board">' + labBoardSvg(res.side, b.st, cubes, res.labels) + '</div>';
+  h += '<h4>Animal cards (' + b.picks.length + ')</h4><div class="lab-cards">' + b.picks.map(function (p, i) {
+    return '<div>' + cardHtml(p.id, p.cells.length, { kind: 'labc', idx: i, sel: false }) + '<div class="meta lab-pts">' + p.pts + ' pts</div></div>';
+  }).join('') + '</div>';
+  h += '<h4>Build order (' + b.turns.length + ' turns)</h4><ol class="lab-turns">' + b.turns.map(function (t) {
+    var parts = [];
+    if (t.card) parts.push('take card ' + cardLabel(t.card));
+    parts.push(t.tokens.map(function (k) { return '<span class="dot" style="background:' + COLORS[k[1]] + '"></span>' + res.labels[k[0]]; }).join(' '));
+    if (t.cubes.length) parts.push('cube ' + t.cubes.map(function (c) { return cardLabel(c[0]) + ' on ' + res.labels[c[1]]; }).join(', '));
+    return '<li>' + parts.join(' · ') + '</li>';
+  }).join('') + '</ol>';
+  h += '<h4>Best animal cards for ' + sp.name + ' (side ' + res.side + ')</h4><table class="score"><tr><td class="meta">Card</td><td class="meta">In strong boards · avg pts</td></tr>' +
+    res.ranking.slice(0, 12).map(function (r) { return '<tr><td>' + cardLabel(r.id) + ' <span class="meta">' + CARD_BY_ID[r.id].shape.toLowerCase() + '</span></td><td>' + r.boards + ' of ' + res.strong + ' · ' + r.avg + '</td></tr>'; }).join('') + '</table>';
+  h += '<p class="meta">Found ' + res.all + ' different boards; the ranking uses the ' + res.strong + ' within 5% of the best. Every board shown was replayed through the game rules turn by turn.</p>';
+  return h;
+}
+function labSheet() {
+  var res = labCache()[LAB.side + '-' + LAB.spirit], running = !!LAB.run;
+  var old = document.querySelector('.sheet'), top = old ? old.scrollTop : 0;
+  var h = '<h3>Spirit Lab</h3><p class="meta">Best case: every draw goes your way (3 tokens a turn, pouch limits, 13 turns at most, the game ends at 2 empty spaces). It shows the ceiling for a spirit, not a plan for a random game.</p>';
+  h += '<div class="opts"><button data-lab="side:A"' + (LAB.side === 'A' ? ' class="primary"' : '') + '>Side A</button><button data-lab="side:B"' + (LAB.side === 'B' ? ' class="primary"' : '') + '>Side B</button></div>';
+  h += '<div class="lab-sp">' + SPIRITS.map(function (c) { return cardHtml(c.id, 0, { kind: 'labsp', idx: c.id, sel: c.id === LAB.spirit }); }).join('') + '</div>';
+  h += '<div class="opts">' + (running ? '<button data-lab="stop">Stop</button>' : '<button class="primary" data-lab="run">' + (res ? 'Rerun' : 'Run') + '</button>') + '<button data-lab="close">Close</button></div>';
+  h += '<div id="labProg">' + labProgHtml() + '</div><div id="labOut">' + labResultsHtml(res) + '</div>';
+  showSheet(h);
+  var sh = document.querySelector('.sheet'); if (sh) sh.scrollTop = top;
+}
+function labProgHtml() {
+  if (!LAB.run) return LAB.msg ? '<p class="meta">' + LAB.msg + '</p>' : '';
+  var r = LAB.run, p = r.prog.reduce(function (a, b) { return a + b; }, 0) / r.prog.length;
+  return '<div class="bar"><i style="width:' + Math.round(p * 100) + '%"></i></div><p class="meta">Searching with ' + (r.fallback ? 'one search (background search is blocked here, so results may be a little weaker)' : r.prog.length + ' parallel searches') + '. Best so far: ' + Math.max.apply(0, r.best) + ' pts. ' + Math.round((Date.now() - r.t0) / 1000) + ' s</p>';
+}
+function labUpdateProg() { var el = document.getElementById('labProg'); if (el) el.innerHTML = labProgHtml(); }
+function labFinish(lists) {
+  var r = LAB.run; LAB.run = null;
+  var res = labMerge(r.side, r.spirit, lists); delete res.list;
+  LAB.mem[r.side + '-' + r.spirit] = res;
+  var cache = labCache(); save(LAB_KEY, cache);
+  LAB.board = 0; LAB.msg = 'Done in ' + Math.round((Date.now() - r.t0) / 1000) + ' s.';
+  if (document.querySelector('.lab-sp')) labSheet();
+}
+function labRun() {
+  if (LAB.run) return;
+  var seed = (Date.now() % 100000) + 1, iters = 20000, n = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 2));
+  var run = LAB.run = { side: LAB.side, spirit: LAB.spirit, t0: Date.now(), prog: [], best: [], lists: [], workers: [], stopped: false };
+  var workers = [];
+  try {
+    var url = URL.createObjectURL(new Blob([labSourceText() +
+      '\nonmessage = function (e) { var d = e.data, r = labSolve(d.side, d.spirit, d.opts, function (p, b) { postMessage({ p: p, b: b }); }); postMessage({ done: r.list }); };'], { type: 'text/javascript' }));
+    for (var i = 0; i < n; i++) workers.push(new Worker(url));
+  } catch (e) { workers.forEach(function (w) { w.terminate(); }); workers = []; }
+  if (workers.length) {
+    run.workers = workers;
+    workers.forEach(function (w, i) {
+      run.prog[i] = 0; run.best[i] = 0;
+      w.onmessage = function (e) {
+        if (run !== LAB.run) return;
+        if (e.data.done) { run.prog[i] = 1; run.lists[i] = e.data.done; w.terminate(); if (run.lists.filter(Boolean).length === workers.length) labFinish(run.lists); else labUpdateProg(); return; }
+        run.prog[i] = e.data.p; run.best[i] = Math.max(run.best[i], e.data.b); labUpdateProg();
+      };
+      w.onerror = function () { if (run !== LAB.run) return; labStop(); LAB.msg = 'The search failed in the background. Try again.'; labSheet(); };
+      w.postMessage({ side: run.side, spirit: run.spirit, opts: { restarts: 6, iters: iters, seed: seed + i * 1000 } });
+    });
+  } else {
+    // No background workers here: run 10 short searches on the page, one at a time, yielding between them
+    // so Stop responds within about a second. Fewer steps than the worker path, so results are a little weaker.
+    var total = 10, done = 0, list = []; run.prog = [0]; run.best = [0]; run.fallback = true;
+    (function step() {
+      if (run !== LAB.run) return;
+      if (done === total) { labFinish([list]); return; }
+      var r = labSolve(run.side, run.spirit, { restarts: 1, iters: 8000, seed: seed + done });
+      list = list.concat(r.list); done++;
+      run.prog[0] = done / total; run.best[0] = list.reduce(function (a, x) { return Math.max(a, x.score.total); }, 0); labUpdateProg();
+      setTimeout(step, 30);
+    })();
+  }
+  labSheet();
+}
+function labStop() {
+  if (!LAB.run) return;
+  LAB.run.workers.forEach(function (w) { w.terminate(); });
+  LAB.run = null; LAB.msg = 'Stopped. Nothing saved.';
+}
+function labClick(t) {
+  var a = t.dataset.lab || '';
+  if (a === 'open') { LAB.msg = ''; labSheet(); return; }
+  if (t.dataset.labsp) { LAB.spirit = +t.dataset.labsp; LAB.board = 0; LAB.msg = ''; labSheet(); return; }
+  if (a === 'run') { LAB.msg = ''; labRun(); return; }
+  if (a === 'stop') { labStop(); labSheet(); return; }
+  if (a === 'close') { closeSheet(); if (S && S.spiritOffer) spiritSheet(); else if (!S) newGameSheet(); return; }
+  if (a.indexOf('side:') === 0) { LAB.side = a.slice(5); LAB.board = 0; LAB.msg = ''; labSheet(); return; }
+  if (a.indexOf('board:') === 0) { LAB.board = +a.slice(6); var el = document.getElementById('labOut'); if (el) el.innerHTML = labResultsHtml(labCache()[LAB.side + '-' + LAB.spirit]); }
+}
+
 document.addEventListener('click', function (e) {
-  var t = e.target.closest('[data-space],[data-tok],[data-row],[data-mine],[data-spirit],[data-cell],[data-new],[data-close],[data-act],button,#ov');
+  var t = e.target.closest('[data-labsp],[data-lab],[data-space],[data-tok],[data-row],[data-mine],[data-spirit],[data-cell],[data-new],[data-close],[data-act],button,#ov');
   if (!t) return;
   if (t.id === 'ov' && e.target === t) { if (!(S && S.spiritOffer)) closeSheet(); return; }
+  if (t.dataset.lab || t.dataset.labsp) { labClick(t); return; }
   if (t.dataset.new) {
     var chk = document.getElementById('spiritChk'), withSp = !!(chk && chk.checked); save(LOGKEY + '-spirit', withSp);
     S = newGame(t.dataset.new, null, withSp); undoStack = []; sel = null; closeSheet();

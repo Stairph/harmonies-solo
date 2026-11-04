@@ -1,3 +1,11 @@
+# Harmonies Solo
+
+Solo Harmonies with a Spirit Lab that searches for the best board for each spirit card. Served by GitHub Pages like Harmonies Score: open https://stairph.github.io/harmonies-solo/ in Safari, then Share > Add to Home Screen.
+
+Tests: `node test.js`, `node breaker-test.js`, `node lab-test.js` (about 1 minute; `--stability` adds rerun checks).
+
+---
+
 # How to run a Dev project
 
 The Dev workstation is a lean two-person software shop with you as the founder. You are the

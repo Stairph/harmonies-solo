@@ -63,7 +63,7 @@ Pick a spirit card and a board side, and see the highest-scoring board I could b
 
 The solver assumes every draw goes my way, inside the hard limits:
 - **Tokens:** 3 per turn. Pouch caps per colour (23 blue, 23 gray, 21 brown, 19 green, 19 yellow, 15 red).
-- **Turns:** at most 12 (the pouch can't refill after turn 12: 111 tokens after setup, 9 used per turn).
+- **Turns:** at most 13 (111 tokens after setup cover 12 refills of 9; the refill after turn 13 fails). Corrected 2026-11-05 from 12, which was an arithmetic slip; the engine runs 13.
 - **End trigger:** the game ends at the end of the first turn with 2 or fewer empty spaces. The solver must find an order where this happens only on the last turn.
 - **Cards:** 1 animal card per turn, at most 4 open at once (spirit included until its cube is on), any card available when I want it. Cubes need the habitat to exist when placed, and nothing goes on a cube afterwards.
 - **Spirit:** its cube must be placed to score; suns use its +0/+1.
@@ -85,7 +85,7 @@ The solver assumes every draw goes my way, inside the hard limits:
 ## Acceptance criteria
 
 - [ ] Every board the solver shows is **replayed through the real game engine** with forced draws, turn by turn, and ends legally with exactly the score shown. A test checks this for all 10 spirits on both sides.
-- [ ] No board uses more of any colour than the pouch holds, more than 36 tokens, or more than 12 turns.
+- [ ] No board uses more of any colour than the pouch holds, more than 39 tokens, or more than 13 turns.
 - [ ] No turn before the last ends with 2 or fewer empty spaces.
 - [ ] Rerunning the same spirit lands within 5% of the best score (the search is stable).
 - [ ] A run finishes in under 30 seconds on Steph's phone, with a progress bar and Stop.
